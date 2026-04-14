@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>⛵ Passeio de Barco</title>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Pacifico&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.3/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body { background: #E8F4FD; font-family: 'Nunito', sans-serif; }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+    select { -webkit-appearance: none; appearance: none; }
+    #loading { position: fixed; inset: 0; background: linear-gradient(135deg,#005F92,#0096C7); display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; font-family: 'Nunito', sans-serif; z-index: 9999; }
+    #loading .boat { font-size: 56px; animation: bob 1.2s ease-in-out infinite; }
+    #loading p { font-size: 17px; font-weight: 700; margin-top: 18px; opacity: 0.85; }
+    @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+  </style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="boat">⛵</div>
+  <p>Carregando o barco...</p>
+</div>
+
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ─────────────────────────────────────────────
+// 🔧 CONFIGURE AQUI (passo a passo no README)
+// ─────────────────────────────────────────────
+const BIN_ID  = "69dec736856a68218934a8a9";
+const API_KEY = "$2a$10$1ZK4zszrPZZIrer6KN15V.eE.sEnoMtoUix1tdu49LdUFFWtisN6e
+";
+// ─────────────────────────────────────────────
+
+const BIN_URL  = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+const HEADERS  = { "Content-Type": "application/json", "X-Master-Key": API_KEY };
+
+const COUPLES = ["Rogério e Zeina", "Ana e Marcos", "Vagão e Adriana"];
+const COUPLE_COLORS = {
+  "Rogério e Zeina": "#0077B6",
+  "Ana e Marcos":    "#F77F00",
+  "Vagão e Adriana": "#2A9D8F"
+};
+const CATEGORIES = [
+  { id: "cerveja", label: "Cervejas", emoji: "🍺" },
+  { id: "vinho",   label: "Vinhos",   emoji: "🍷" },
+  { id: "lanche",  label: "Lanches",  emoji: "🥪" },
+  { id: "petisco", label: "Petiscos", emoji: "🧀" },
+];
+const F = "'Nunito', sans-serif";
+const EMPTY_EXPENSES = { "Rogério e Zeina": "", "Ana e Marcos": "", "Vagão e Adriana": "" };
+
+function App() {
+  const [tab, setTab]           = useState("lista");
+  const [items, setItems]       = useState([]);
+  const [expenses, setExpenses] = useState(EMPTY_EXPENSES);
+  const [showAdd, setShowAdd]   = useState(false);
+  const [newItem, setNewItem]   = useState({ name: "", category: "cerveja", quantity: "", responsible: COUPLES[0] });
+  const [status, setStatus]     = useState("carregando"); // carregando | ok | salvando | erro
+  const [toast, setToast]       = useState("");
+  const saveTimer               = useRef(null);
+  const isFirstLoad             = useRef(true);
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2500); };
+
+  // ── Carrega dados do JSONBin ──
+  const loadData = async (showMsg = false) => {
+    try {
+      setStatus("carregando");
+      const res  = await fetch(BIN_URL + "/latest", { headers: HEADERS });
+      const json = await res.json();
+      if (json.record) {
+        if (json.record.items)    setItems(json.record.items);
+        if (json.record.expenses) setExpenses(e => ({ ...EMPTY_EXPENSES, ...json.record.expenses }));
+      }
+      setStatus("ok");
+      if (showMsg) showToast("✅ Lista atualizada!");
+    } catch {
+      setStatus("erro");
+      showToast("❌ Erro ao carregar. Verifique sua conexão.");
+    } finally {
+      document.getElementById("loading").style.display = "none";
+    }
+  };
+
+  // ── Salva dados no JSONBin (debounced 1.5s) ──
+  const saveData = (newItems, newExpenses) => {
+    clearTimeout(saveTimer.current);
+    setStatus("salvando");
+    saveTimer.current = setTimeout(async () => {
+      try {
+        await fetch(BIN_URL, {
+          method: "PUT",
+          headers: HEADERS,
+          body: JSON.stringify({ items: newItems, expenses: newExpenses })
+        });
+        setStatus("ok");
+      } catch {
+        setStatus("erro");
+        showToast("❌ Erro ao salvar. Tenta de novo.");
+      }
+    }, 1500);
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  // Salva sempre que items ou expenses mudam (exceto no primeiro carregamento)
+  useEffect(() => {
+    if (isFirstLoad.current) { isFirstLoad.current = false; return; }
+    saveData(items, expenses);
+  }, [items, expenses]);
+
+  const addItem = () => {
+    if (!newItem.name.trim()) return;
+    setItems(p => [...p, { id: Date.now(), name: newItem.name.trim(), category: newItem.category, quantity: newItem.quantity || "1", responsible: newItem.responsible, bought: false }]);
+    setNewItem({ name: "", category: "cerveja", quantity: "", responsible: COUPLES[0] });
+    setShowAdd(false);
+  };
+  const toggleBought = id => setItems(p => p.map(i => i.id === id ? { ...i, bought: !i.bought } : i));
+  const deleteItem   = id => { if (confirm("Remover este item?")) setItems(p => p.filter(i => i.id !== id)); };
+
+  const total       = COUPLES.reduce((s, c) => s + (parseFloat(expenses[c]) || 0), 0);
+  const split       = total / 3;
+  const boughtCount = items.filter(i => i.bought).length;
+  const progress    = items.length > 0 ? Math.round((boughtCount / items.length) * 100) : 0;
+
+  const statusInfo = {
+    carregando: { icon: "⏳", label: "carregando",  color: "rgba(255,255,255,0.2)" },
+    salvando:   { icon: "💾", label: "salvando...", color: "rgba(255,200,0,0.3)"   },
+    ok:         { icon: "✓",  label: "salvo",       color: "rgba(255,255,255,0.2)" },
+    erro:       { icon: "⚠️", label: "erro",        color: "rgba(255,80,80,0.35)"  },
+  }[status];
+
+  return (
+    <div style={{ fontFamily: F, maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: "#F0F7FF", display: "flex", flexDirection: "column" }}>
+
+      {/* Toast */}
+      {toast && (
+        <div style={{ position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)", background: "#1A2744", color: "white", padding: "12px 22px", borderRadius: 22, fontSize: 15, fontWeight: 800, zIndex: 300, boxShadow: "0 6px 20px rgba(0,0,0,0.25)", whiteSpace: "nowrap" }}>
+          {toast}
+        </div>
+      )}
+
+      {/* ── Header ── */}
+      <div style={{ background: "linear-gradient(135deg,#005F92 0%,#0096C7 100%)", padding: "20px 18px 16px", color: "white" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ fontFamily: "'Pacifico', cursive", fontSize: 24, marginBottom: 3 }}>⛵ Passeio de Barco</div>
+            <div style={{ fontSize: 13, opacity: 0.8, fontWeight: 600 }}>{items.length} itens · {boughtCount} comprado{boughtCount !== 1 ? "s" : ""}</div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+            {/* Status */}
+            <div style={{ background: statusInfo.color, borderRadius: 20, padding: "5px 12px", fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", gap: 5 }}>
+              {statusInfo.icon} {statusInfo.label}
+            </div>
+            {/* Atualizar */}
+            <button onClick={() => loadData(true)} title="Buscar atualizações"
+              style={{ background: "rgba(255,255,255,0.18)", border: "none", borderRadius: 10, padding: "7px 12px", color: "white", cursor: "pointer", fontSize: 13, fontWeight: 800, fontFamily: F }}>
+              🔄 Atualizar
+            </button>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 7, marginTop: 12, flexWrap: "wrap" }}>
+          {COUPLES.map(c => (
+            <div key={c} style={{ background: "rgba(255,255,255,0.18)", borderRadius: 20, padding: "4px 12px", fontSize: 12, fontWeight: 700, borderLeft: `3px solid ${COUPLE_COLORS[c]}` }}>
+              {c}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Tabs ── */}
+      <div style={{ display: "flex", background: "white", borderBottom: "1px solid #E0EEF8", position: "sticky", top: 0, zIndex: 10, boxShadow: "0 2px 8px rgba(0,100,180,0.07)" }}>
+        {[{ id: "lista", label: "🛒 Lista" }, { id: "checklist", label: "✅ Compras" }, { id: "contas", label: "💰 Contas" }].map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{ flex: 1, padding: "15px 4px", border: "none", background: "none", fontSize: 15, fontWeight: tab === t.id ? 900 : 600, color: tab === t.id ? "#0077B6" : "#AAB8C8", borderBottom: tab === t.id ? "3px solid #0077B6" : "3px solid transparent", cursor: "pointer", fontFamily: F, transition: "all 0.2s" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Content ── */}
+      <div style={{ flex: 1, padding: "18px 16px" }}>
+
+        {/* ─── LISTA ─── */}
+        {tab === "lista" && (
+          <div>
+            {CATEGORIES.map(cat => {
+              const ci = items.filter(i => i.category === cat.id);
+              return (
+                <div key={cat.id} style={{ marginBottom: 22 }}>
+                  <div style={{ fontSize: 17, fontWeight: 900, color: "#0077B6", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 24 }}>{cat.emoji}</span>
+                    {cat.label}
+                    <span style={{ background: "#E0F0FF", color: "#0077B6", borderRadius: 20, padding: "2px 10px", fontSize: 13, fontWeight: 700 }}>{ci.length}</span>
+                  </div>
+                  {ci.length === 0
+                    ? <div style={{ background: "white", borderRadius: 12, padding: "13px 16px", color: "#C8D8E8", fontSize: 15, textAlign: "center", border: "1.5px dashed #D8EAF8" }}>Nada ainda 👀</div>
+                    : ci.map(item => (
+                      <div key={item.id} style={{ background: "white", borderRadius: 14, padding: "13px 16px", marginBottom: 9, display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 2px 10px rgba(0,100,180,0.07)" }}>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: 17, color: "#1A2744" }}>{item.name}</div>
+                          <div style={{ display: "flex", gap: 7, marginTop: 5 }}>
+                            <span style={{ background: "#E0F0FF", color: "#0077B6", borderRadius: 20, padding: "3px 10px", fontSize: 13, fontWeight: 800 }}>{item.quantity}x</span>
+                            <span style={{ background: COUPLE_COLORS[item.responsible] + "22", color: COUPLE_COLORS[item.responsible], borderRadius: 20, padding: "3px 10px", fontSize: 13, fontWeight: 800 }}>
+                              {item.responsible.split(" e ")[0]}
+                            </span>
+                          </div>
+                        </div>
+                        <button onClick={() => deleteItem(item.id)} style={{ background: "#FFF0F0", color: "#FF6B6B", border: "none", borderRadius: 10, padding: "9px 13px", cursor: "pointer", fontSize: 16 }}>🗑️</button>
+                      </div>
+                    ))
+                  }
+                </div>
+              );
+            })}
+
+            {!showAdd
+              ? <button onClick={() => setShowAdd(true)} style={{ width: "100%", padding: "17px", background: "linear-gradient(135deg,#0077B6,#00B4D8)", color: "white", border: "none", borderRadius: 14, fontSize: 17, fontWeight: 900, cursor: "pointer", fontFamily: F, boxShadow: "0 4px 14px rgba(0,119,182,0.3)" }}>
+                  + Adicionar item
+                </button>
+              : <div style={{ background: "white", borderRadius: 18, padding: 20, boxShadow: "0 4px 20px rgba(0,100,180,0.12)" }}>
+                  <div style={{ fontWeight: 900, fontSize: 18, color: "#0077B6", marginBottom: 18 }}>✏️ Novo item</div>
+
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ fontSize: 13, fontWeight: 800, color: "#889", display: "block", marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 }}>Nome</label>
+                    <input autoFocus value={newItem.name} onChange={e => setNewItem(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === "Enter" && addItem()} placeholder="Ex: Heineken, Queijo, Bruschetta..."
+                      style={{ width: "100%", padding: "13px 14px", border: "2px solid #E0EEF8", borderRadius: 11, fontSize: 17, fontFamily: F, outline: "none", color: "#1A2744" }} />
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 13, fontWeight: 800, color: "#889", display: "block", marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 }}>Categoria</label>
+                      <div style={{ position: "relative" }}>
+                        <select value={newItem.category} onChange={e => setNewItem(p => ({ ...p, category: e.target.value }))}
+                          style={{ width: "100%", padding: "13px 36px 13px 12px", border: "2px solid #E0EEF8", borderRadius: 11, fontSize: 15, fontFamily: F, background: "white", color: "#1A2744" }}>
+                          {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.emoji} {c.label}</option>)}
+                        </select>
+                        <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: "#AAB", pointerEvents: "none" }}>▾</span>
+                      </div>
+                    </div>
+                    <div style={{ width: 88 }}>
+                      <label style={{ fontSize: 13, fontWeight: 800, color: "#889", display: "block", marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5 }}>Qtd.</label>
+                      <input type="number" inputMode="numeric" value={newItem.quantity} onChange={e => setNewItem(p => ({ ...p, quantity: e.target.value }))} placeholder="1" min="1"
+                        style={{ width: "100%", padding: "13px 8px", border: "2px solid #E0EEF8", borderRadius: 11, fontSize: 18, fontFamily: F, textAlign: "center", color: "#1A2744" }} />
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 18 }}>
+                    <label style={{ fontSize: 13, fontWeight: 800, color: "#889", display: "block", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Responsável</label>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {COUPLES.map(c => (
+                        <button key={c} onClick={() => setNewItem(p => ({ ...p, responsible: c }))}
+                          style={{ padding: "9px 15px", borderRadius: 22, fontSize: 14, fontWeight: 800, border: "2.5px solid " + (newItem.responsible === c ? COUPLE_COLORS[c] : "#E0EEF8"), background: newItem.responsible === c ? COUPLE_COLORS[c] + "18" : "white", color: newItem.responsible === c ? COUPLE_COLORS[c] : "#AAB8C8", cursor: "pointer", fontFamily: F }}>
+                          {c.split(" e ")[0]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={() => setShowAdd(false)} style={{ flex: 1, padding: 14, background: "#F0F4F8", color: "#AAB", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 800, cursor: "pointer", fontFamily: F }}>Cancelar</button>
+                    <button onClick={addItem} style={{ flex: 2, padding: 14, background: "linear-gradient(135deg,#0077B6,#00B4D8)", color: "white", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 900, cursor: "pointer", fontFamily: F }}>Adicionar ✓</button>
+                  </div>
+                </div>
+            }
+          </div>
+        )}
+
+        {/* ─── CHECKLIST ─── */}
+        {tab === "checklist" && (
+          <div>
+            <div style={{ background: "white", borderRadius: 16, padding: "16px 18px", marginBottom: 20, boxShadow: "0 2px 10px rgba(0,100,180,0.07)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                <span style={{ fontWeight: 900, fontSize: 16, color: "#1A2744" }}>Progresso das compras</span>
+                <span style={{ fontWeight: 900, fontSize: 16, color: "#0077B6" }}>{boughtCount}/{items.length}</span>
+              </div>
+              <div style={{ background: "#E0F0FF", borderRadius: 20, height: 13, overflow: "hidden" }}>
+                <div style={{ width: progress + "%", height: "100%", background: "linear-gradient(90deg,#0077B6,#00C9A7)", borderRadius: 20, transition: "width 0.5s ease" }} />
+              </div>
+              <div style={{ textAlign: "right", marginTop: 7, fontSize: 14, color: "#AAB8C8", fontWeight: 700 }}>{progress}% concluído</div>
+            </div>
+
+            {items.length === 0
+              ? <div style={{ textAlign: "center", padding: "50px 20px", color: "#C8D8E8" }}>
+                  <div style={{ fontSize: 44, marginBottom: 14 }}>🛒</div>
+                  <div style={{ fontSize: 17, fontWeight: 800 }}>Adicione itens na aba Lista primeiro!</div>
+                </div>
+              : CATEGORIES.map(cat => {
+                  const ci = items.filter(i => i.category === cat.id);
+                  if (!ci.length) return null;
+                  return (
+                    <div key={cat.id} style={{ marginBottom: 20 }}>
+                      <div style={{ fontSize: 14, fontWeight: 900, color: "#AAB8C8", marginBottom: 9, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                        {cat.emoji} {cat.label}
+                      </div>
+                      {ci.map(item => (
+                        <div key={item.id} onClick={() => toggleBought(item.id)} style={{ background: item.bought ? "#F0FFF8" : "white", border: "2px solid " + (item.bought ? "#2DC653" : "#E0EEF8"), borderRadius: 13, padding: "14px 16px", marginBottom: 9, display: "flex", alignItems: "center", gap: 14, cursor: "pointer", transition: "all 0.2s" }}>
+                          <div style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0, border: "3px solid " + (item.bought ? "#2DC653" : "#D0E8F8"), background: item.bought ? "#2DC653" : "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "white", fontWeight: 900 }}>
+                            {item.bought ? "✓" : ""}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 800, fontSize: 17, color: item.bought ? "#AAB8C8" : "#1A2744", textDecoration: item.bought ? "line-through" : "none" }}>
+                              {item.name}
+                            </div>
+                            <div style={{ fontSize: 13, color: "#AAB8C8", fontWeight: 700, marginTop: 3 }}>
+                              {item.quantity}x · {item.responsible.split(" e ")[0]}
+                            </div>
+                          </div>
+                          {item.bought && <span style={{ fontSize: 20 }}>✅</span>}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })
+            }
+          </div>
+        )}
+
+        {/* ─── CONTAS ─── */}
+        {tab === "contas" && (
+          <div>
+            <div style={{ background: "linear-gradient(135deg,#005F92,#0096C7)", borderRadius: 20, padding: "22px 20px", color: "white", marginBottom: 22, textAlign: "center", boxShadow: "0 6px 20px rgba(0,100,180,0.25)" }}>
+              <div style={{ fontSize: 13, opacity: 0.8, fontWeight: 700, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Total gasto</div>
+              <div style={{ fontFamily: "'Pacifico', cursive", fontSize: 42, lineHeight: 1.1 }}>
+                R$ {total.toFixed(2).replace(".", ",")}
+              </div>
+              <div style={{ marginTop: 14, background: "rgba(255,255,255,0.18)", borderRadius: 12, padding: "11px 16px", fontSize: 18, fontWeight: 800 }}>
+                R$ {split.toFixed(2).replace(".", ",")} por casal
+              </div>
+            </div>
+
+            {COUPLES.map(c => {
+              const val  = parseFloat(expenses[c]) || 0;
+              const diff = val - split;
+              return (
+                <div key={c} style={{ background: "white", borderRadius: 16, padding: 18, marginBottom: 14, boxShadow: "0 2px 10px rgba(0,100,180,0.07)", borderLeft: "5px solid " + COUPLE_COLORS[c] }}>
+                  <div style={{ fontWeight: 900, fontSize: 17, color: "#1A2744", marginBottom: 12 }}>{c}</div>
+                  <div style={{ position: "relative" }}>
+                    <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", fontWeight: 900, fontSize: 18, color: COUPLE_COLORS[c] }}>R$</span>
+                    <input type="number" inputMode="decimal" value={expenses[c]} onChange={e => setExpenses(p => ({ ...p, [c]: e.target.value }))} placeholder="0,00"
+                      style={{ width: "100%", padding: "14px 14px 14px 48px", border: "2px solid #E0EEF8", borderRadius: 12, fontSize: 20, fontFamily: F, fontWeight: 700, color: "#1A2744" }} />
+                  </div>
+                  {expenses[c] !== "" && total > 0 && (
+                    <div style={{ marginTop: 10, fontSize: 15, fontWeight: 800, textAlign: "right", color: diff > 0.01 ? "#2A9D8F" : diff < -0.01 ? "#FF6B6B" : "#AAB" }}>
+                      {diff > 0.01 ? `💚 Recebe R$ ${diff.toFixed(2).replace(".", ",")}` : diff < -0.01 ? `🔴 Paga R$ ${Math.abs(diff).toFixed(2).replace(".", ",")}` : `✅ Tá certinho!`}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {total > 0 && (
+              <div style={{ background: "#F0FFF8", border: "2px solid #C8ECD8", borderRadius: 14, padding: "16px 18px", marginTop: 4 }}>
+                <div style={{ fontWeight: 900, fontSize: 16, color: "#2A9D8F", marginBottom: 12 }}>📊 Resumo final</div>
+                {COUPLES.map(c => {
+                  const diff = (parseFloat(expenses[c]) || 0) - split;
+                  return (
+                    <div key={c} style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 700, color: "#1A2744", marginBottom: 8 }}>
+                      <span>{c}</span>
+                      <span style={{ color: diff > 0.01 ? "#2A9D8F" : diff < -0.01 ? "#FF6B6B" : "#AAB", fontWeight: 900 }}>
+                        {diff > 0.01 ? `+R$ ${diff.toFixed(2)}` : diff < -0.01 ? `-R$ ${Math.abs(diff).toFixed(2)}` : `✓`}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
